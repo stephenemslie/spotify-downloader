@@ -260,6 +260,20 @@ def parse_spotify_options(parser: _ArgumentGroup):
         ),
     )
 
+    # Add no-api argument
+    parser.add_argument(
+        "--no-api",
+        dest="no_api",
+        action="store_const",
+        const=True,
+        help=(
+            "Obtain an anonymous Spotify access token from the web player instead of "
+            "using client credentials. No Spotify developer account needed. "
+            "Works for public playlists, albums, and tracks. "
+            "Requires a residential/office IP — blocked from datacenter addresses."
+        ),
+    )
+
 
 def parse_ffmpeg_options(parser: _ArgumentGroup):
     """

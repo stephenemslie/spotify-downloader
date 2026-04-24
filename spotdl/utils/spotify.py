@@ -69,6 +69,7 @@ class Singleton(type):
         use_cache_file: bool = False,
         auth_token: Optional[str] = None,
         cache_path: Optional[str] = None,
+        no_api: bool = False,
     ) -> "Singleton":
         """
         Initializes the SpotifyClient.
@@ -92,30 +93,30 @@ class Singleton(type):
 
         credential_manager = None
 
-        cache_handler = (
-            CacheFileHandler(cache_path or get_cache_path())
-            if not no_cache
-            else MemoryCacheHandler()
-        )
-        # Use SpotifyOAuth as auth manager
-        if user_auth:
-            credential_manager = SpotifyOAuth(
-                client_id=client_id,
-                client_secret=client_secret,
-                redirect_uri="http://127.0.0.1:9900/",
-                scope="user-library-read,user-follow-read,playlist-read-private",
-                cache_handler=cache_handler,
-                open_browser=not headless,
+        # Only create a credential manager when no explicit auth token is provided.
+        # When auth_token is set (e.g. via --no-api anonymous token), we pass it
+        # directly to spotipy and skip OAuth/ClientCredentials entirely.
+        if auth_token is None:
+            cache_handler = (
+                CacheFileHandler(cache_path or get_cache_path())
+                if not no_cache
+                else MemoryCacheHandler()
             )
-        # Use SpotifyClientCredentials as auth manager
-        else:
-            credential_manager = SpotifyClientCredentials(
-                client_id=client_id,
-                client_secret=client_secret,
-                cache_handler=cache_handler,
-            )
-        if auth_token is not None:
-            credential_manager = None
+            if user_auth:
+                credential_manager = SpotifyOAuth(
+                    client_id=client_id,
+                    client_secret=client_secret,
+                    redirect_uri="http://127.0.0.1:9900/",
+                    scope="user-library-read,user-follow-read,playlist-read-private",
+                    cache_handler=cache_handler,
+                    open_browser=not headless,
+                )
+            else:
+                credential_manager = SpotifyClientCredentials(
+                    client_id=client_id,
+                    client_secret=client_secret,
+                    cache_handler=cache_handler,
+                )
 
         self.user_auth = user_auth
         self.no_cache = no_cache
