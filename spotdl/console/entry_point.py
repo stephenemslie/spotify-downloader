@@ -23,7 +23,6 @@ from spotdl.utils.downloader import check_ytmusic_connection
 from spotdl.utils.ffmpeg import FFmpegError, download_ffmpeg, is_ffmpeg_installed
 from spotdl.utils.logging import init_logging
 from spotdl.utils.spotify import SpotifyClient, SpotifyError, save_spotify_cache
-from spotdl.utils.spotify_anon import SpotifyAnonError, get_anonymous_token
 
 __all__ = ["console_entry_point", "OPERATIONS"]
 
@@ -103,19 +102,6 @@ def entry_point():
                 "You are blocked by YouTube Music. "
                 "Please use a VPN, change youtube-music to piped, or use other audio providers"
             )
-
-    # When --no-api is set, fetch an anonymous Spotify web-player token so the
-    # user doesn't need to register a developer application.
-    if spotify_settings.get("no_api"):
-        logger.info(
-            "Fetching anonymous Spotify token (--no-api mode). "
-            "This requires a non-datacenter IP address."
-        )
-        try:
-            anon_token, _ = get_anonymous_token()
-            spotify_settings["auth_token"] = anon_token
-        except SpotifyAnonError as exc:
-            raise SpotifyError(str(exc)) from exc
 
     # Initialize spotify client
     SpotifyClient.init(**spotify_settings)

@@ -547,6 +547,14 @@ def reinit_song(song: Song) -> Song:
     """
 
     data = song.json
+
+    # Skip the API re-fetch if all fields that Song.from_url() would supply are
+    # already present (e.g. songs built by Playlist.get_metadata() with batch calls).
+    _fields_from_api = {"genres", "disc_count", "publisher", "copyright_text",
+                        "popularity", "artist_id"}
+    if all(data.get(f) is not None for f in _fields_from_api):
+        return song
+
     if data.get("url"):
         new_data = Song.from_url(data["url"]).json
     elif data.get("song_id"):

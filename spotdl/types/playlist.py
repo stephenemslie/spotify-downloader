@@ -13,6 +13,9 @@ __all__ = ["Playlist", "PlaylistError"]
 
 logger = logging.getLogger(__name__)
 
+_ALBUM_BATCH_SIZE = 20  # Spotify albums endpoint maximum
+_ARTIST_BATCH_SIZE = 50  # Spotify artists endpoint maximum
+
 
 class PlaylistError(Exception):
     """
@@ -73,20 +76,22 @@ class Playlist(SongList):
         if playlist_response is None:
             raise PlaylistError(f"Wrong playlist id: {url}")
 
-        # Get all tracks from playlist
+        # Collect all track items (paginated)
         tracks = playlist_response["items"]
         while playlist_response["next"]:
             playlist_response = spotify_client.next(playlist_response)
 
-            # Failed to get response, break the loop
             if playlist_response is None:
                 break
 
-            # Add tracks to the list
             tracks.extend(playlist_response["items"])
 
-        songs = []
-        for track_no, track in enumerate(tracks):
+        # Filter to valid, non-local tracks and record which album/artist IDs we need
+        valid_tracks = []
+        seen_album_ids: List[str] = []
+        seen_artist_ids: List[str] = []
+
+        for track in tracks:
             if not isinstance(track, dict) or track.get("track") is None:
                 continue
 
@@ -98,21 +103,71 @@ class Playlist(SongList):
                     track_meta.get("id"),
                     track_meta.get("type"),
                 )
-
                 continue
 
             track_id = track_meta.get("id")
             if track_id is None or track_meta.get("duration_ms") == 0:
                 continue
 
+            valid_tracks.append(track_meta)
+
+            album_id = track_meta.get("album", {}).get("id")
+            if album_id and album_id not in seen_album_ids:
+                seen_album_ids.append(album_id)
+
+            primary_artist_id = (track_meta.get("artists") or [{}])[0].get("id")
+            if primary_artist_id and primary_artist_id not in seen_artist_ids:
+                seen_artist_ids.append(primary_artist_id)
+
+        # Batch-fetch full album objects (genres, label, copyrights, disc count)
+        album_data: Dict[str, Any] = {}
+        for i in range(0, len(seen_album_ids), _ALBUM_BATCH_SIZE):
+            batch = seen_album_ids[i : i + _ALBUM_BATCH_SIZE]
+            result = spotify_client.albums(batch)
+            if result:
+                for album in result["albums"]:
+                    if album:
+                        album_data[album["id"]] = album
+
+        # Batch-fetch full artist objects (genres)
+        artist_data: Dict[str, Any] = {}
+        for i in range(0, len(seen_artist_ids), _ARTIST_BATCH_SIZE):
+            batch = seen_artist_ids[i : i + _ARTIST_BATCH_SIZE]
+            result = spotify_client.artists(batch)
+            if result:
+                for artist in result["artists"]:
+                    if artist:
+                        artist_data[artist["id"]] = artist
+
+        # Build fully-populated Song objects from the combined data
+        songs = []
+        for track_no, track_meta in enumerate(valid_tracks):
             album_meta = track_meta.get("album", {})
+            album_id = album_meta.get("id")
+            full_album = album_data.get(album_id, {})
+
+            primary_artist_id = (track_meta.get("artists") or [{}])[0].get("id")
+            full_artist = artist_data.get(primary_artist_id, {})
+
             release_date = album_meta.get("release_date")
             artists = [artist["name"] for artist in track_meta.get("artists", [])]
+
+            genres = (full_album.get("genres") or []) + (
+                full_artist.get("genres") or []
+            )
+
+            # disc_count is the disc number of the last track in the album
+            disc_count = None
+            album_tracks = full_album.get("tracks", {}).get("items")
+            if album_tracks:
+                disc_count = int(album_tracks[-1]["disc_number"])
+
             song = Song.from_missing_data(
                 name=track_meta["name"],
                 artists=artists,
-                artist=artists[0],
-                album_id=album_meta.get("id"),
+                artist=artists[0] if artists else None,
+                artist_id=primary_artist_id,
+                album_id=album_id,
                 album_name=album_meta.get("name"),
                 album_artist=(
                     album_meta.get("artists", [])[0]["name"]
@@ -121,6 +176,7 @@ class Playlist(SongList):
                 ),
                 album_type=album_meta.get("album_type"),
                 disc_number=track_meta["disc_number"],
+                disc_count=disc_count,
                 duration=int(track_meta["duration_ms"] / 1000),
                 year=release_date[:4] if release_date else None,
                 date=release_date,
@@ -134,9 +190,17 @@ class Playlist(SongList):
                     max(album_meta["images"], key=lambda i: i["width"] * i["height"])[
                         "url"
                     ]
-                    if (len(album_meta.get("images", [])) > 0)
+                    if len(album_meta.get("images", [])) > 0
                     else None
                 ),
+                genres=genres if genres else None,
+                publisher=full_album.get("label") or None,
+                copyright_text=(
+                    full_album["copyrights"][0]["text"]
+                    if full_album.get("copyrights")
+                    else None
+                ),
+                popularity=track_meta.get("popularity"),
                 list_position=track_no + 1,
             )
 
