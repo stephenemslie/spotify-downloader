@@ -547,6 +547,16 @@ def reinit_song(song: Song) -> Song:
     """
 
     data = song.json
+
+    # Skip the API re-fetch when the song has already been populated by either
+    # Song.from_url() or Playlist.get_metadata()'s batch path. artist_id and
+    # popularity are both reliably set by those paths (popularity is always
+    # returned by the Spotify track endpoint, even if 0) and rarely elsewhere,
+    # so they act as a cheap sentinel without depending on fields that can
+    # legitimately be None (genres, publisher, copyright_text).
+    if data.get("artist_id") is not None and data.get("popularity") is not None:
+        return song
+
     if data.get("url"):
         new_data = Song.from_url(data["url"]).json
     elif data.get("song_id"):
