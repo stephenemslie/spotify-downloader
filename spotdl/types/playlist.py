@@ -88,8 +88,8 @@ class Playlist(SongList):
 
         # Filter to valid, non-local tracks and record which album/artist IDs we need
         valid_tracks = []
-        seen_album_ids: List[str] = []
-        seen_artist_ids: List[str] = []
+        album_ids: set = set()
+        artist_ids: set = set()
 
         for track in tracks:
             if not isinstance(track, dict) or track.get("track") is None:
@@ -112,17 +112,18 @@ class Playlist(SongList):
             valid_tracks.append(track_meta)
 
             album_id = track_meta.get("album", {}).get("id")
-            if album_id and album_id not in seen_album_ids:
-                seen_album_ids.append(album_id)
+            if album_id:
+                album_ids.add(album_id)
 
             primary_artist_id = (track_meta.get("artists") or [{}])[0].get("id")
-            if primary_artist_id and primary_artist_id not in seen_artist_ids:
-                seen_artist_ids.append(primary_artist_id)
+            if primary_artist_id:
+                artist_ids.add(primary_artist_id)
 
         # Batch-fetch full album objects (genres, label, copyrights, disc count)
         album_data: Dict[str, Any] = {}
-        for i in range(0, len(seen_album_ids), _ALBUM_BATCH_SIZE):
-            batch = seen_album_ids[i : i + _ALBUM_BATCH_SIZE]
+        album_id_list = list(album_ids)
+        for i in range(0, len(album_id_list), _ALBUM_BATCH_SIZE):
+            batch = album_id_list[i : i + _ALBUM_BATCH_SIZE]
             result = spotify_client.albums(batch)
             if result:
                 for album in result["albums"]:
@@ -131,8 +132,9 @@ class Playlist(SongList):
 
         # Batch-fetch full artist objects (genres)
         artist_data: Dict[str, Any] = {}
-        for i in range(0, len(seen_artist_ids), _ARTIST_BATCH_SIZE):
-            batch = seen_artist_ids[i : i + _ARTIST_BATCH_SIZE]
+        artist_id_list = list(artist_ids)
+        for i in range(0, len(artist_id_list), _ARTIST_BATCH_SIZE):
+            batch = artist_id_list[i : i + _ARTIST_BATCH_SIZE]
             result = spotify_client.artists(batch)
             if result:
                 for artist in result["artists"]:
